@@ -21,4 +21,22 @@ header p{font-size:10px;letter-spacing:4px;opacity:.6}
 .msg.user{border-left-color:#fff}
 .input-area{display:flex;gap:8px;margin-top:12px}
 input{flex:1;background:#000;border:1px solid #0ff;color:#0ff;padding:10px}
-button{background:#0ff;color:#000;border:none;padding:10px 16px;font-weight:bold}
+button{background:#0ff;color:#000;border:none;padding:10px 16px;font-weight:bold;cursor:pointer;transition:all 0.3s}
+button:hover{box-shadow:0 0 10px #0ff;transform:scale(1.05)}
+.voice-btn{background:#f00;color:#fff;padding:10px 12px;font-size:16px}
+.voice-btn:hover{box-shadow:0 0 10px #f00}
+.tts-btn{background:#ff0;color:#000;padding:10px 12px;font-size:16px;opacity:0.5}
+.tts-btn:hover{box-shadow:0 0 10px #ff0}
+#listening-indicator{position:fixed;top:20px;right:20px;background:#f00;color:#fff;padding:8px 16px;border-radius:4px;font-size:11px;letter-spacing:2px;animation:pulse-indicator 0.8s infinite;font-weight:bold}
+.listening-hidden{display:none}
+@keyframes pulse-indicator{0%,100%{opacity:1;box-shadow:0 0 10px #f00}50%{opacity:0.5;box-shadow:0 0 20px #f00}}
+@media(max-width:600px){
+  body{padding:10px}
+  .core{width:120px;height:120px;margin:15px auto}
+  .center{inset:40px}
+  header h1{font-size:24px}
+  .chat{height:200px}
+  .input-area{flex-wrap:wrap}
+  input{flex:1 1 100%}
+  button{flex:1}
+}

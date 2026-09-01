@@ -1,221 +1,140 @@
-const chat = document.getElementById('chat');
-const input = document.getElementById('msg');
-const sendBtn = document.getElementById('send');
-const voiceBtn = document.getElementById('voice-btn');
-const ttsToggle = document.getElementById('tts-toggle');
-const listeningIndicator = document.getElementById('listening-indicator');
-const voiceStatus = document.getElementById('voice-status');
-const ttsStatus = document.getElementById('tts-status');
+// frontend/script.js
+// J.A.R.V.I.S — minimal local assistant with speech recognition and TTS
+(function(){
+  const chat = document.getElementById('chat');
+  const msgInput = document.getElementById('msg');
+  const sendBtn = document.getElementById('send');
+  const voiceBtn = document.getElementById('voice-btn');
+  const ttsToggle = document.getElementById('tts-toggle');
+  const listeningIndicator = document.getElementById('listening-indicator');
+  const voiceStatus = document.getElementById('voice-status');
+  const ttsStatus = document.getElementById('tts-status');
 
-// Text-to-Speech and Speech Recognition Configuration
-let ttsEnabled = false;
-let isListening = false;
-const synth = window.speechSynthesis;
-const recognition = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
+  let ttsEnabled = false;
+  let recognition = null;
 
-// Configure Speech Recognition
-recognition.continuous = false;
-recognition.interimResults = true;
-recognition.lang = 'en-US';
-
-// J.A.R.V.I.S Response Database (Enhanced)
-const responses = {
-  greetings: {
-    keywords: ['hello', 'hi', 'hey', 'greetings', 'good morning', 'good afternoon', 'good evening'],
-    responses: [
-      'J.A.R.V.I.S: Good day, sir. Systems fully operational.',
-      'J.A.R.V.I.S: At your service, Boss. What can I do for you?',
-      'J.A.R.V.I.S: Hello. How may I be of assistance?',
-      'J.A.R.V.I.S: Greetings. Standing by for commands.'
-    ]
-  },
-  help: {
-    keywords: ['help', 'what can you do', 'commands', 'assist', 'capabilities', 'features'],
-    responses: [
-      'J.A.R.V.I.S: I can assist with:\n• Information queries\n• Task management\n• System status reports\n• Voice commands\n• General assistance',
-      'J.A.R.V.I.S: I am programmed to help with various tasks. Simply ask away, sir.',
-      'J.A.R.V.I.S: My capabilities include voice recognition, text processing, and intelligent response generation.'
-    ]
-  },
-  status: {
-    keywords: ['status', 'how are you', 'system check', 'diagnostics', 'condition'],
-    responses: [
-      'J.A.R.V.I.S: All systems operational, Boss. Ready for duty.',
-      'J.A.R.V.I.S: Running at peak efficiency. What do you require?',
-      'J.A.R.V.I.S: Systems nominal. All functions optimal.'
-    ]
-  },
-  voice: {
-    keywords: ['voice', 'microphone', 'listen', 'speak', 'voice command', 'speech'],
-    responses: [
-      'J.A.R.V.I.S: Voice recognition system active. Please speak clearly.',
-      'J.A.R.V.I.S: Microphone engaged and listening for your commands, sir.'
-    ]
-  },
-  tts: {
-    keywords: ['speaker', 'audio', 'sound', 'text to speech', 'speak response', 'voice output'],
-    responses: [
-      'J.A.R.V.I.S: Text-to-speech system engaged. All responses will be vocalized.',
-      'J.A.R.V.I.S: Audio output enabled. I shall now speak my responses.'
-    ]
-  },
-  time: {
-    keywords: ['time', 'what time', 'current time', 'hour', 'minute'],
-    responses: [
-      `J.A.R.V.I.S: The current time is ${new Date().toLocaleTimeString()}, sir.`,
-      `J.A.R.V.I.S: It is currently ${new Date().toLocaleTimeString()}.`
-    ]
-  },
-  default: {
-    responses: [
-      'J.A.R.V.I.S: Processing that request, sir. Fascinating.',
-      'J.A.R.V.I.S: Acknowledged. Working on it now.',
-      'J.A.R.V.I.S: Understood, Boss. Computing response.',
-      'J.A.R.V.I.S: Very well. Analyzing your query.',
-      'J.A.R.V.I.S: Indeed, sir. That is quite interesting.',
-      'J.A.R.V.I.S: Noted. Processing your request.'
-    ]
+  // Initialize from localStorage
+  function loadState(){
+    try{
+      const saved = JSON.parse(localStorage.getItem('jarvis_chat')||'{}');
+      ttsEnabled = !!saved.ttsEnabled;
+      if(saved.messages && Array.isArray(saved.messages)){
+        saved.messages.forEach(m => addBubble(m.text, m.sender, false));
+      }
+    }catch(e){/*ignore*/}
+    updateStatusUI();
   }
-};
 
-// Get random response from array
-function getRandomResponse(arr) {
-  return arr[Math.floor(Math.random() * arr.length)];
-}
+  function saveState(){
+    const messages = Array.from(chat.querySelectorAll('.bubble')).map(b=>({
+      text: b.textContent,
+      sender: b.classList.contains('user')? 'user' : 'jarvis'
+    }));
+    localStorage.setItem('jarvis_chat', JSON.stringify({messages, ttsEnabled}));
+  }
 
-// Find matching category
-function getJarvisResponse(userInput) {
-  const input = userInput.toLowerCase();
-  
-  for (const [key, data] of Object.entries(responses)) {
-    if (key === 'default') continue;
-    if (data.keywords.some(keyword => input.includes(keyword))) {
-      return getRandomResponse(data.responses);
+  function addBubble(text, sender='jarvis', save=true){
+    const div = document.createElement('div');
+    div.className = 'bubble ' + (sender==='user'? 'user' : 'jarvis');
+    div.textContent = text;
+    chat.appendChild(div);
+    chat.scrollTop = chat.scrollHeight;
+    if(save) saveState();
+  }
+
+  function updateStatusUI(){
+    voiceStatus.className = recognition && recognition._listening ? 'on' : (recognition? 'off' : 'off');
+    voiceStatus.textContent = (recognition && recognition._listening) ? '● LISTENING' : '○ LOCKED';
+    ttsStatus.className = ttsEnabled ? 'on' : 'off';
+    ttsStatus.textContent = ttsEnabled ? '● ENABLED' : '○ LOCKED';
+  }
+
+  function speak(text){
+    if(!('speechSynthesis' in window)) return;
+    const u = new SpeechSynthesisUtterance(text);
+    // prefer a neutral voice
+    const voices = speechSynthesis.getVoices();
+    if(voices && voices.length) u.voice = voices.find(v=>/english|en-US/i.test(v.lang))||voices[0];
+    u.pitch = 1; u.rate = 1;
+    speechSynthesis.cancel();
+    speechSynthesis.speak(u);
+  }
+
+  function processJarvis(input){
+    const text = input.trim();
+    if(!text) return;
+    // Simple rule-based responses
+    const lower = text.toLowerCase();
+    let reply = "I\u2019m J.A.R.V.I.S — your mobile assistant. I heard: '"+text+"'.";
+    if(/hello|hi|hey/.test(lower)) reply = 'Hello — how can I help you today?';
+    else if(/time/.test(lower)) reply = 'The time is ' + new Date().toLocaleTimeString();
+    else if(/date/.test(lower)) reply = 'Today is ' + new Date().toLocaleDateString();
+    else if(/help|commands/.test(lower)) reply = "Try: 'time', 'date', 'hello', or ask me anything.";
+    else if(/clear chat|clear/.test(lower)){
+      chat.innerHTML = '';
+      saveState();
+      addBubble('Chat cleared.', 'jarvis');
+      if(ttsEnabled) speak('Chat cleared');
+      return;
     }
+    addBubble(reply, 'jarvis');
+    if(ttsEnabled) speak(reply);
   }
-  
-  return getRandomResponse(responses.default.responses);
-}
 
-// Text-to-Speech Function
-function speakResponse(text) {
-  if (!ttsEnabled) return;
-  
-  // Cancel any ongoing speech
-  synth.cancel();
-  
-  const utterance = new SpeechSynthesisUtterance(text);
-  utterance.rate = 1.0;
-  utterance.pitch = 1.0;
-  utterance.volume = 1.0;
-  utterance.lang = 'en-US';
-  
-  synth.speak(utterance);
-}
-
-// Add message to chat
-function add(text, who) {
-  const d = document.createElement('div');
-  d.className = 'msg ' + who;
-  d.innerText = text;
-  chat.appendChild(d);
-  chat.scrollTop = chat.scrollHeight;
-}
-
-// Voice Input Handler
-function startVoiceInput() {
-  if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
-    add('J.A.R.V.I.S: Voice recognition not supported on this device.', 'ai');
-    return;
+  function sendMessage(){
+    const text = msgInput.value.trim();
+    if(!text) return;
+    addBubble(text, 'user');
+    msgInput.value = '';
+    processJarvis(text);
   }
-  
-  isListening = true;
-  voiceBtn.style.background = '#0f0';
-  voiceStatus.textContent = '● ACTIVE';
-  voiceStatus.className = 'on';
-  listeningIndicator.classList.remove('listening-hidden');
-  
-  recognition.start();
-}
 
-recognition.onstart = () => {
-  isListening = true;
-};
-
-recognition.onresult = (event) => {
-  let transcript = '';
-  
-  for (let i = event.resultIndex; i < event.results.length; i++) {
-    transcript += event.results[i][0].transcript;
+  // Setup SpeechRecognition
+  function setupRecognition(){
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition || null;
+    if(!SR) return null;
+    const r = new SR();
+    r.lang = 'en-US';
+    r.interimResults = false;
+    r.maxAlternatives = 1;
+    r._listening = false;
+    r.onstart = ()=>{ r._listening = true; listeningIndicator.className = 'listening-visible'; updateStatusUI(); };
+    r.onend = ()=>{ r._listening = false; listeningIndicator.className = 'listening-hidden'; updateStatusUI(); };
+    r.onerror = (ev)=>{ console.warn('Speech recognition error', ev); r._listening=false; listeningIndicator.className='listening-hidden'; updateStatusUI(); };
+    r.onresult = (ev)=>{
+      const t = ev.results[0][0].transcript;
+      msgInput.value = t;
+      sendMessage();
+    };
+    return r;
   }
-  
-  if (event.results[event.results.length - 1].isFinal) {
-    input.value = transcript;
-    isListening = false;
-    voiceBtn.style.background = '';
-    voiceStatus.textContent = '○ LOCKED';
-    voiceStatus.className = 'off';
-    listeningIndicator.classList.add('listening-hidden');
-    sendBtn.click();
-  }
-};
 
-recognition.onerror = (event) => {
-  add(`J.A.R.V.I.S: Error with voice input - ${event.error}`, 'ai');
-  isListening = false;
-  voiceBtn.style.background = '';
-  voiceStatus.textContent = '○ LOCKED';
-  voiceStatus.className = 'off';
-  listeningIndicator.classList.add('listening-hidden');
-};
+  // UI events
+  sendBtn.addEventListener('click', sendMessage);
+  msgInput.addEventListener('keydown', function(e){ if(e.key === 'Enter') sendMessage(); });
 
-recognition.onend = () => {
-  isListening = false;
-  voiceBtn.style.background = '';
-  voiceStatus.textContent = '○ LOCKED';
-  voiceStatus.className = 'off';
-  listeningIndicator.classList.add('listening-hidden');
-};
+  voiceBtn.addEventListener('click', function(){
+    if(!recognition){
+      recognition = setupRecognition();
+      if(!recognition){
+        addBubble('Speech recognition not supported in this browser.', 'jarvis');
+        return;
+      }
+    }
+    if(recognition._listening){
+      recognition.stop();
+    }else{
+      try{ recognition.start(); }catch(e){ console.warn(e); }
+    }
+    updateStatusUI();
+  });
 
-// Toggle Text-to-Speech
-ttsToggle.onclick = () => {
-  ttsEnabled = !ttsEnabled;
-  ttsToggle.style.opacity = ttsEnabled ? '1' : '0.5';
-  ttsStatus.textContent = ttsEnabled ? '● ACTIVE' : '○ LOCKED';
-  ttsStatus.className = ttsEnabled ? 'on' : 'off';
-  add(`J.A.R.V.I.S: Text-to-speech ${ttsEnabled ? 'enabled' : 'disabled'}, sir.`, 'ai');
-};
+  ttsToggle.addEventListener('click', function(){ ttsEnabled = !ttsEnabled; updateStatusUI(); saveState(); if(ttsEnabled) addBubble('Text-to-speech enabled', 'jarvis'); });
 
-// Voice Button Handler
-voiceBtn.onclick = () => {
-  if (!isListening) {
-    startVoiceInput();
-  }
-};
+  // expose a simple welcome message
+  addBubble('J.A.R.V.I.S online. Type or press the microphone to speak.', 'jarvis');
 
-// Handle send button click
-sendBtn.onclick = () => {
-  const t = input.value.trim();
-  if (!t) return;
-  
-  add('YOU: ' + t, 'user');
-  input.value = '';
-  add('J.A.R.V.I.S: Processing...', 'ai');
-  
-  // Simulate processing delay
-  setTimeout(() => {
-    const response = getJarvisResponse(t);
-    chat.lastChild.innerText = response;
-    speakResponse(response);
-  }, 800);
-};
+  // initialize
+  loadState();
 
-// Allow Enter key to send
-input.onkeypress = (e) => {
-  if (e.key === 'Enter') {
-    sendBtn.click();
-  }
-};
-
-// Initial greeting
-add('J.A.R.V.I.S: Systems online. How may I assist you, Boss?', 'ai');
+})();
